@@ -16,17 +16,17 @@ class AlexNet(nn.Module):
     def __init__(self, num_classes=10):
         super(AlexNet, self).__init__()
 
-        self.c1 = nn.Conv2d(3, 64, kernel_size=11, stride=1)
+        self.c1 = nn.Conv2d(3, 64, kernel_size=11, stride=1, bias=False)
         self.mp1 = nn.MaxPool2d(kernel_size=2, stride=1)
 
-        self.c2 = nn.Conv2d(64, 192, kernel_size=5)
+        self.c2 = nn.Conv2d(64, 192, kernel_size=5, bias=False)
         self.mp2 = nn.MaxPool2d(kernel_size=2, stride=2)
 
-        self.c3 = nn.Conv2d(192, 384, kernel_size=3)
+        self.c3 = nn.Conv2d(192, 384, kernel_size=3, bias=False)
 
-        self.c4 = nn.Conv2d(384, 256, kernel_size=3)
+        self.c4 = nn.Conv2d(384, 256, kernel_size=3, bias=False)
 
-        self.c5 = nn.Conv2d(256, 256, kernel_size=3)
+        self.c5 = nn.Conv2d(256, 256, kernel_size=3, bias=False)
 
         self.mp3 = nn.MaxPool2d(kernel_size=2, stride=2)
 
@@ -185,18 +185,37 @@ class AlexNet(nn.Module):
 
     def compute_dynamic_filtration(self, x, hiddens, percentile=None):
         f = dion.Filtration()
-        s = x.cpu().detach().numpy().reshape(-1).shape[0]
-        f, h1_births = conv_filtration(f, x, self.c1, 0, s, percentile=percentile)
-        print('h1 births', h1_births.shape)
-        mp1_id_start = s + hiddens[0].cpu().detach().numpy().shape[0]
-        f, mp1_births = max_pooling_filtration(f, hiddens[0], self.mp1, h1_births, s, mp1_id_start, percentile=percentile)
-        h1_id_start = mp1_id_start + hiddens[1].cpu().detach().numpy().shape[0]
-        f, h1_births = conv_filtration(f, hiddens[1], self.c2, mp1_id_start, h1_id_start, h0_births=mp1_births, percentile=percentile)
-        mp2_id_start = h1_id_start + hiddens[2].cpu().detach().numpy().shape[0]
-        f, mp2_births = max_pooling_filtration(f, hiddens[2], self.mp2, h2_births, h1_id_start, mp2_id_start, percentile=percentile)
-        h2_id_start = mp2_id_start + hiddens[3].cpu().detach().numpy().shape[0]
-        f, h2_births = conv_filtration(f, hiddens[3], self.c3, mp2_id_start, h2_id_start, h0_births=mp2_births, percentile=percentile)
-        h3_id_start = mp3
+        # s = x.cpu().detach().numpy().reshape(-1).shape[0]
+        id_start = 0
+        num_channels = x.shape[0]
+
+        for c in range(num_channels):
+
+            s = x[c].cpu().detach().numpy().reshape(-1).shape[0]
+            x_id_start = id_start + s
+            f, h1_births = conv_filtration(f, x[c], self.c1, id_start, x_id_start, percentile=percentile)
+            print('h1 births', h1_births.shape)
+
+            mp1_id_start = x_id_start + hiddens[0].cpu().detach().numpy().flatten().shape[0]
+            f, mp1_births = max_pooling_filtration(f, hiddens[0], self.mp1, h1_births, x_id_start, mp1_id_start, percentile=percentile)
+
+            h1_id_start = mp1_id_start + hiddens[1].cpu().detach().numpy().flatten().shape[0]
+            print(mp1_births.shape, len(f))
+            h2_births = []
+            # iterate over each channel
+            for d in range(hiddens[1].shape[0]):
+                start_1 = mp1_id_start + (mp1_births[d].flatten().shape[0]*d)
+                start_2 = h1_id_start + (hiddens[1][d].cpu().detach().numpy().flatten().shape[0]*d)
+                f, h2b = conv_filtration(f, hiddens[1][d], self.c2, mp1_id_start, h1_id_start, h0_births=mp1_births[d], percentile=percentile)
+                h2_births.append(h2b)
+            h2_births = np.array(h2_births)
+            mp2_id_start = h1_id_start + hiddens[2].cpu().detach().numpy().flatten().shape[0]
+            f, mp2_births = max_pooling_filtration(f, hiddens[2], self.mp2, h2_births, h1_id_start, mp2_id_start, percentile=percentile)
+            print('mp2births', mp2_births.shape)
+
+            h2_id_start = mp2_id_start + hiddens[3].cpu().detach().numpy().shape[0]
+            f, h2_births = conv_filtration(f, hiddens[3], self.c3, mp2_id_start, h2_id_start, h0_births=mp2_births, percentile=percentile)
+            h3_id_start = mp3
 
         print('filtration size', len(f))
         print('Sorting filtration...')

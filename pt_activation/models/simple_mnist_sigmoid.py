@@ -22,9 +22,8 @@ class CFF(nn.Module):
         self.fc1_size = fc1_size
         self.activation = 'sigmoid'
         self.conv1 = nn.Conv2d(1, self.filters, kernel_size=self.kernel_size, bias=False, stride=1)
-        # self.conv2 = nn.Conv2d(self.filters, self.filters2, kernel_size=self.kernel_size2, bias=False, stride=1)
-        self.fc1 = nn.Linear(((28-self.kernel_size+1)**2)*self.filters, self.fc1_size)
-        self.fc2 = nn.Linear(self.fc1_size, 10)
+        self.fc1 = nn.Linear(((28-self.kernel_size+1)**2)*self.filters, self.fc1_size, bias=False)
+        self.fc2 = nn.Linear(self.fc1_size, 10, bias=False)
 
     def forward(self, x, hiddens=False):
 
@@ -37,8 +36,7 @@ class CFF(nn.Module):
         return F.log_softmax(y, dim=1)
 
     def save_string(self):
-        return "cff_{}-filters_{}-kernel_size_{}-fc1_{}-activation.pt".format(
-                self.filters, self.kernel_size, self.fc1_size, self.activation)
+        return "cff_mnist_sigmoid.pt"
 
     def layerwise_ids(self, input_size=28*28):
         l1_size = (28-self.kernel_size+1)**2*self.filters
@@ -165,7 +163,7 @@ class CFF(nn.Module):
 
         h1_id_start = x.cpu().detach().numpy().reshape(-1).shape[0]
         print('h1_id_start', h1_id_start)
-        f, h1_births = conv_filtration(f, x, self.conv1, 0, h1_id_start, percentile=percentile)
+        f, h1_births = conv_filtration(f, x[0], self.conv1.weight.data[:,0,:,:], 0, h1_id_start, percentile=percentile)
 
         h2_id_start = h1_id_start + hiddens[0].cpu().detach().numpy().shape[0]
         print('h2_id_start', h2_id_start)
@@ -446,7 +444,7 @@ def main():
         datasets.MNIST('../data', train=True, download=True,
                        transform=transforms.Compose([
                            transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,))
+                        #    transforms.Normalize((0.1307,), (0.3081,))
                        ])),
         batch_size=args.batch_size, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
@@ -458,8 +456,8 @@ def main():
 
 
     model = CFF().to(device)
-    # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+    # optimizer = optim.Adam(model.parameters(), lr=args.lr)
     res_df = []
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch)

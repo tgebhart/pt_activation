@@ -10,42 +10,40 @@ import dionysus as dion
 import numpy as np
 import pandas as pd
 
-from pt_activation.functions.filtration import conv_filtration, linear_filtration, conv_layer_as_matrix
+from pt_activation.functions.filtration import conv_filtration, linear_filtration, max_pooling_filtration
 
-class CFF(nn.Module):
-    def __init__(self, filters=5, kernel_size=5, fc1_size=50):
-        super(CFF, self).__init__()
-        self.filters = filters
-        self.kernel_size = kernel_size
-        self.fc1_size = fc1_size
-        self.activation = 'relu'
-        self.conv1 = nn.Conv2d(1, self.filters, kernel_size=self.kernel_size, bias=False, stride=1)
-        self.fc1 = nn.Linear(((28-self.kernel_size+1)**2)*self.filters, self.fc1_size, bias=False)
-        self.fc2 = nn.Linear(self.fc1_size, 10, bias=False)
+class CCFF(nn.Module):
+    def __init__(self, num_classes=10):
+        super(CCFF, self).__init__()
+
+        self.c1 = nn.Conv2d(1, 3, kernel_size=5, stride=1, bias=False)
+        self.c2 = nn.Conv2d(3, 3, kernel_size=3, stride=1, bias=False)
+
+        self.l1 = nn.Linear(1452, 256, bias=False)
+        self.l2 = nn.Linear(256, num_classes, bias=False)
 
     def forward(self, x, hiddens=False):
 
-        h1_m = F.relu(self.conv1(x))
-        h1 = h1_m.view(-1, (28-self.kernel_size+1)**2*self.filters)
-        h2 = F.relu(self.fc1(h1))
-        y = self.fc2(h2)
+        h1 = torch.relu(self.c1(x))
+        h2 = torch.relu(self.c2(h1))
+        resized = h2.view(h2.size(0), -1)
+        h3 = torch.relu(self.l1(resized))
+        y = self.l2(h3)
+        hiddens = [h1, resized, h3, y]
         if hiddens:
-            return F.log_softmax(y, dim=1), [h1, h2, y]
-        return F.log_softmax(y, dim=1)
+            return y, hiddens
+        return y
 
-    # def predict_subgraph(self, x, subgraph):
-    #     model.eval()
-    #
 
     def save_string(self):
-        return "cff_mnist_relu.pt"
+        return "ccff_fashion.pt"
 
-    def layerwise_ids(self, input_size=28*28):
-        l1_size = (28-self.kernel_size+1)**2*self.filters
-        l1_end = input_size+l1_size
-        l2_end = l1_end+self.fc1_size
-        l3_end = l2_end + 10
-        return [range(input_size), range(input_size, l1_end), range(l1_end, l2_end), range(l2_end, l3_end)]
+    # def layerwise_ids(self, input_size=28*28):
+    #     l1_size = (28-self.kernel_size+1)**2*self.filters
+    #     l1_end = input_size+l1_size
+    #     l2_end = l1_end+self.fc1_size
+    #     l3_end = l2_end + 10
+    #     return [range(input_size), range(input_size, l1_end), range(l1_end, l2_end), range(l2_end, l3_end)]
 
     def compute_static_filtration(self, x, hiddens, percentile=None):
         x_id = 0
@@ -160,112 +158,32 @@ class CFF(nn.Module):
 
     def compute_dynamic_filtration(self, x, hiddens, percentile=None):
         f = dion.Filtration()
+        id_start = 0
+        num_channels = x.shape[0]
 
-        h1_id_start = x.cpu().detach().numpy().reshape(-1).shape[0]
-        print('h1_id_start', h1_id_start)
-        f, h1_births = conv_filtration(f, x[0], self.conv1.weight.data[:,0,:,:], 0, h1_id_start, percentile=percentile)
+        for c in range(num_channels):
 
-        h2_id_start = h1_id_start + hiddens[0].cpu().detach().numpy().shape[0]
-        print('h2_id_start', h2_id_start)
-        f, h2_births = linear_filtration(f, hiddens[0], self.fc1, h1_births, h1_id_start, h2_id_start, percentile=percentile, last=False)
+            s = x[c].cpu().detach().numpy().reshape(-1).shape[0]
+            h1_id_start = id_start + s
+            f, h1_births = conv_filtration(f, x[c], self.c1.weight.data[:,c,:,:], id_start, h1_id_start, percentile=percentile, stride=self.c1.stride[0])
 
-        h3_id_start = h2_id_start + hiddens[1].cpu().detach().numpy().shape[0]
-        print('h3_id_start', h3_id_start)
-        f = linear_filtration(f, hiddens[1], self.fc2, h2_births, h2_id_start, h3_id_start, percentile=percentile, last=True)
 
-        # mat = conv_layer_as_matrix(self.conv1.weight.data[:,0,:,:], x[0], self.conv1.stride[0])
-        # x = x.cpu().detach().numpy().reshape(-1)
-        # outer = np.absolute(mat*x)
-        #
-        # if percentile is None:
-        #     percentile_1 = 0
-        # else:
-        #     percentile_1 = np.percentile(outer, percentile)
-        # gtzx = np.argwhere(x > 0)
-        #
-        # h1_id_start = x.shape[0]
-        # print('h1_id_start', h1_id_start)
-        # h1_births = np.zeros(mat.shape[0])
-        # # loop over each entry in the reshaped (column) x vector
-        # for xi in gtzx:
-        #     # compute the product of each filter value with current x in iteration.
-        #     all_xis = np.absolute(mat[:,xi]*x[xi])
-        #     max_xi = all_xis.max()
-        #     # set our x filtration as the highest product
-        #     f.append(dion.Simplex([xi], max_xi))
-        #     gtpall_xis = np.argwhere(all_xis > percentile_1)[:,0]
-        #     # iterate over all products
-        #     for mj in gtpall_xis:
-        #         # if there is another filter-xi combination that has a higher
-        #         # product, save this as the birth time of that vertex.
-        #         if h1_births[mj] < all_xis[mj]:
-        #             h1_births[mj] = all_xis[mj]
-        #         f.append(dion.Simplex([xi, mj+h1_id_start], all_xis[mj]))
-        #
-        # h1 = hiddens[0].cpu().detach().numpy()
-        # h2_id_start = h1_id_start + h1.shape[0]
-        # print('h2_id_start', h2_id_start)
-        # mat = self.fc1.weight.data.cpu().detach().numpy()
-        # h2_births = np.zeros(mat.shape[0])
-        #
-        # outer = np.absolute(mat*h1)
-        # if percentile is None:
-        #     percentile_2 = 0
-        # else:
-        #     percentile_2 = np.percentile(outer, percentile)
-        # gtzh1 = np.argwhere(h1 > 0)
-        #
-        # for xi in gtzh1:
-        #     all_xis = np.absolute(mat[:,xi]*h1[xi])
-        #     max_xi = all_xis.max()
-        #     if h1_births[xi] < max_xi:
-        #         h1_births[xi] = max_xi
-        #     gtpall_xis = np.argwhere(all_xis > percentile_2)[:,0]
-        #
-        #     for mj in gtpall_xis:
-        #         if h2_births[mj] < all_xis[mj]:
-        #             h2_births[mj] = all_xis[mj]
-        #         f.append(dion.Simplex([xi+h1_id_start, mj+h2_id_start], all_xis[mj]))
-        #
-        #
-        # # now add maximum birth time for each h1 hidden vertex to the filtration.
-        # for i in np.argwhere(h1_births > 0):
-        #     f.append(dion.Simplex([i+h1_id_start], h1_births[i]))
-        #
-        #
-        # h2 = hiddens[1].cpu().detach().numpy()
-        # h3_id_start = h2_id_start + h2.shape[0]
-        # print('h3_id_start', h3_id_start)
-        # mat = self.fc2.weight.data.cpu().detach().numpy()
-        # h3_births = np.zeros(mat.shape[0])
-        #
-        # outer = np.absolute(mat*h2)
-        # if percentile is None:
-        #     percentile_3 = 0
-        # else:
-        #     percentile_3 = np.percentile(outer, percentile)
-        # gtzh2 = np.argwhere(h2 > 0)
-        #
-        # for xi in gtzh2:
-        #     all_xis = np.absolute(mat[:,xi]*h2[xi])
-        #     max_xi = all_xis.max()
-        #     if h2_births[xi] < max_xi:
-        #         h2_births[xi] = max_xi
-        #     gtpall_xis = np.argwhere(all_xis > percentile_3)[:,0]
-        #
-        #     for mj in gtpall_xis:
-        #         if h3_births[mj] < all_xis[mj]:
-        #             h3_births[mj] = all_xis[mj]
-        #         f.append(dion.Simplex([xi+h2_id_start, mj+h3_id_start], all_xis[mj]))
-        #
-        #
-        # # now add maximum birth time for each h2 hidden vertex to the filtration.
-        # for i in np.argwhere(h2_births > 0):
-        #     f.append(dion.Simplex([i+h2_id_start], h2_births[i]))
-        #
-        # # now add maximum birth time for each h3 hidden vertex to the filtration.
-        # for i in np.argwhere(h3_births > 0):
-        #     f.append(dion.Simplex([i+h3_id_start], h3_births[i]))
+            h1_births = h1_births.reshape(hiddens[0].shape)
+            h2_id_start = h1_id_start + hiddens[0].cpu().detach().numpy().flatten().shape[0]
+            start_2 = h2_id_start
+            h2_births = []
+            for d in range(hiddens[0].shape[0]):
+                start_1 = h1_id_start + (h1_births[d].flatten().shape[0]*d)
+                f, h2b = conv_filtration(f, hiddens[0][d], self.c2.weight.data[:,d,:,:], start_1, start_2, h0_births=h1_births[d], percentile=percentile, stride=self.c1.stride[0])
+                start_2 += h2b.shape[0]
+                h2_births.append(h2b)
+            h2_births = np.array(h2_births).reshape(-1)
+
+            h3_id_start = h2_id_start + hiddens[1].cpu().detach().numpy().shape[0]
+            f, h3_births = linear_filtration(f, hiddens[1], self.l1, h2_births, h2_id_start, h3_id_start, percentile=percentile, last=False)
+
+            h4_id_start = h3_id_start + hiddens[2].cpu().detach().numpy().shape[0]
+            f = linear_filtration(f, hiddens[2], self.l2, h3_births, h3_id_start, h4_id_start, percentile=percentile, last=True)
 
         print('filtration size', len(f))
         print('Sorting filtration...')
@@ -279,8 +197,9 @@ def train(args, model, device, train_loader, optimizer, epoch):
     for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
-        output = model(data)
-        loss = F.nll_loss(output, target)
+        output,_ = model(data, hiddens=False)
+        closs = nn.CrossEntropyLoss()
+        loss = closs(output, target)
         loss.backward()
         optimizer.step()
         if batch_idx % args.log_interval == 0:
@@ -312,8 +231,9 @@ def test(args, model, device, test_loader):
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
-            output = model(data)
-            test_loss += F.nll_loss(output, target, reduction='sum').item() # sum up batch loss
+            output,_ = model(data,hiddens=False)
+            closs = nn.CrossEntropyLoss(reduction='sum')
+            test_loss += closs(output, target).item() # sum up batch loss
             pred = output.max(1, keepdim=True)[1] # get the index of the max log-probability
             correct += pred.eq(target.view_as(pred)).sum().item()
 
@@ -358,6 +278,7 @@ def create_diagrams(args, model):
     test_loader = torch.utils.data.DataLoader(
         datasets.MNIST('../data', train=False, download=True, transform=transforms.Compose([
                            transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
                        ])), batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
 
@@ -404,7 +325,7 @@ def persistence_score(d):
 
 def main():
     # Training settings
-    parser = argparse.ArgumentParser(description='PyTorch MNIST')
+    parser = argparse.ArgumentParser(description='PyTorch CCFF on FashionMNIST')
     parser.add_argument('-m', '--model-directory', type=str, required=True,
                         help='location to store trained model')
     parser.add_argument('-d', '--diagram-directory', type=str, required=False,
@@ -439,24 +360,23 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
-    train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=True, download=True,
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),
-                        #    transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=args.batch_size, shuffle=True, **kwargs)
-    test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False, transform=transforms.Compose([
-                           transforms.ToTensor(),
-                        #    transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
+    transform = transforms.Compose([transforms.ToTensor()])
+
+    trainset = datasets.FashionMNIST(root='../data/fashion', train=True,
+                                            download=True, transform=transform)
+    train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
+                                              shuffle=True, num_workers=2)
+
+    testset = datasets.FashionMNIST(root='../data/fashion', train=False,
+                                           download=True, transform=transform)
+    test_loader = torch.utils.data.DataLoader(testset, batch_size=args.test_batch_size,
+                                             shuffle=False, num_workers=2)
 
 
-    model = CFF().to(device)
-    # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
-    optimizer = optim.SGD(model.parameters(), lr=args.lr)
+    model = CCFF().to(device)
+    optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
+
     res_df = []
     for epoch in range(1, args.epochs + 1):
         train(args, model, device, train_loader, optimizer, epoch)

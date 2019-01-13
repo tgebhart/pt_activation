@@ -37,78 +37,59 @@ def conv_filter_as_matrix(f,n,stride):
              skipped += 1
     return unrolled_K
 
+
 def conv_layer_as_matrix(filters, x, stride):
     n = x.shape[0]
     num_filters = filters.shape[0]
     m = filters.shape[2]
     ret_height = num_filters*((n-m)//stride + 1)**2
     ret_width = n**2
-    print(ret_height, ret_width)
     retmat = np.empty((ret_height, ret_width))
     for i in range(num_filters):
-        fmat = conv_filter_as_matrix(filters[i,0], n, stride)
+        fmat = conv_filter_as_matrix(filters[i], n, stride)
         retmat[i*fmat.shape[0]:(i+1)*fmat.shape[0]] = fmat
     return retmat
 
 
 
-def conv_filtration(f, x_in, conv, id_start_1, id_start_2, percentile=None, h0_births=None):
-    dim_size = len(x_in.shape)
-    num_channels = x_in.shape[dim_size-3] if dim_size > 2 else 1
-    x_height = x_in.shape[dim_size-2]
-    x_width = x_in.shape[dim_size-1]
-    nm = x_height*x_width
-    num_filters = conv.weight.data.shape[0]
+def conv_filtration(f, x, conv_weight_data, id_start_1, id_start_2, percentile=None, h0_births=None, stride=1):
+    mat = conv_layer_as_matrix(conv_weight_data, x, stride)
+    x = x.cpu().detach().numpy().reshape(-1)
+    outer = np.absolute(mat*x)
     if h0_births is None:
-        h0_births = np.zeros(x_in.shape)
-    all_h1_births = []
+        h0_births = np.zeros(x.shape)
+    else:
+        h0_births = h0_births.reshape(-1)
 
-    for c in range(num_channels):
+    if percentile is None:
+        percentile_1 = 0
+    else:
+        percentile_1 = np.percentile(outer, percentile)
+    gtzx = np.argwhere(x > 0)
 
-        print('xschape', x_in.shape)
-        print(conv.weight.data.shape)
-        mat = conv_layer_as_matrix(conv.weight.data, x_in[c], conv.stride[0])
-        print('matt shape', mat.shape)
-        x = x_in[c].cpu().detach().numpy().reshape(-1)
-        outer = np.absolute(mat*x)
-        if h0_births is None:
-            this_h0_births = np.zeros(x.shape)
-        else:
-            this_h0_births = h0_births[c,:,:].reshape(-1)
+    h1_births = np.zeros(mat.shape[0])
+    # loop over each entry in the reshaped (column) x vector
+    for xi in gtzx:
+        # compute the product of each filter value with current x in iteration.
+        all_xis = np.absolute(mat[:,xi]*x[xi])
+        max_xi = all_xis.max()
+        # set our x filtration as the highest product
+        if h0_births[xi] < max_xi:
+            h0_births[xi] = max_xi
+            # f.append(dion.Simplex([xi], max_xi))
+        gtpall_xis = np.argwhere(all_xis > percentile_1)[:,0]
+        # iterate over all products
+        for mj in gtpall_xis:
+            # if there is another filter-xi combination that has a higher
+            # product, save this as the birth time of that vertex.
+            if h1_births[mj] < all_xis[mj]:
+                h1_births[mj] = all_xis[mj]
+            f.append(dion.Simplex([xi+id_start_1, mj+id_start_2], all_xis[mj]))
 
-        if percentile is None:
-            percentile_1 = 0
-        else:
-            percentile_1 = np.percentile(outer, percentile)
-        gtzx = np.argwhere(x > 0)
-
-        h1_births = np.zeros(mat.shape[0])
-        # loop over each entry in the reshaped (column) x vector
-        for xi in gtzx:
-            # compute the product of each filter value with current x in iteration.
-            all_xis = np.absolute(mat[:,xi]*x[xi])
-            max_xi = all_xis.max()
-            # set our x filtration as the highest product
-            if this_h0_births[xi] < max_xi:
-                this_h0_births[xi] = max_xi
-                # f.append(dion.Simplex([xi], max_xi))
-            gtpall_xis = np.argwhere(all_xis > percentile_1)[:,0]
-            # iterate over all products
-            for mj in gtpall_xis:
-                # if there is another filter-xi combination that has a higher
-                # product, save this as the birth time of that vertex.
-                if h1_births[mj] < all_xis[mj]:
-                    h1_births[mj] = all_xis[mj]
-                f.append(dion.Simplex([xi+id_start_1+(c*nm), mj+id_start_2+(c*mat.shape[0])], all_xis[mj]))
-
-        h0_births[c,:,:] = this_h0_births.reshape((x_height, x_width))
-        all_h1_births.append(h1_births)
-
-    h0_births = h0_births.flatten()
     for i in np.argwhere(h0_births > 0):
         f.append(dion.Simplex([i+id_start_1], h0_births[i]))
 
-    return f, np.array(all_h1_births)
+    return f, h1_births
 
 def linear_filtration(f, h1, fc, h1_births, id_start_1, id_start_2, percentile=None, last=False):
     h1 = h1.cpu().detach().numpy()
@@ -148,7 +129,6 @@ def linear_filtration(f, h1, fc, h1_births, id_start_1, id_start_2, percentile=N
 
 
 def max_pooling_filtration(f, h1, pool, h1_births, id_start_1, id_start_2, percentile=None):
-    # pool = pool.data.cpu().detach().numpy()
     h1 = h1.cpu().detach().numpy()
     h1_dim_size = len(h1.shape)
 
@@ -235,7 +215,7 @@ def max_pooling_filtration(f, h1, pool, h1_births, id_start_1, id_start_2, perce
     for i in np.argwhere(h1_births > 0):
         f.append(dion.Simplex([i+id_start_1], h1_births[i]))
 
-    return f, h2_births.flatten()
+    return f, h2_births
 
 
 

@@ -12,33 +12,24 @@ import pandas as pd
 
 from pt_activation.functions.filtration import conv_filtration, linear_filtration, conv_layer_as_matrix
 
-class CFF(nn.Module):
-    def __init__(self, filters=5, kernel_size=5, fc1_size=50):
-        super(CFF, self).__init__()
-        self.filters = filters
-        self.kernel_size = kernel_size
-        self.fc1_size = fc1_size
-        self.activation = 'relu'
-        self.conv1 = nn.Conv2d(1, self.filters, kernel_size=self.kernel_size, bias=False, stride=1)
-        self.fc1 = nn.Linear(((28-self.kernel_size+1)**2)*self.filters, self.fc1_size, bias=False)
-        self.fc2 = nn.Linear(self.fc1_size, 10, bias=False)
+class FFF(nn.Module):
+    def __init__(self):
+        super(FFF, self).__init__()
+        self.fc1 = nn.Linear(28*28, 256, bias=False)
+        self.fc2 = nn.Linear(256, 50, bias=False)
+        self.fc3 = nn.Linear(50, 10, bias=False)
 
     def forward(self, x, hiddens=False):
-
-        h1_m = F.relu(self.conv1(x))
-        h1 = h1_m.view(-1, (28-self.kernel_size+1)**2*self.filters)
-        h2 = F.relu(self.fc1(h1))
-        y = self.fc2(h2)
+        x = x.view(x.size(0), -1)
+        h1 = torch.relu(self.fc1(x))
+        h2 = torch.relu(self.fc2(h1))
+        y = torch.relu(self.fc3(h2))
         if hiddens:
             return F.log_softmax(y, dim=1), [h1, h2, y]
         return F.log_softmax(y, dim=1)
 
-    # def predict_subgraph(self, x, subgraph):
-    #     model.eval()
-    #
-
     def save_string(self):
-        return "cff_mnist_relu.pt"
+        return "fff_mnist_relu.pt"
 
     def layerwise_ids(self, input_size=28*28):
         l1_size = (28-self.kernel_size+1)**2*self.filters
@@ -163,7 +154,7 @@ class CFF(nn.Module):
 
         h1_id_start = x.cpu().detach().numpy().reshape(-1).shape[0]
         print('h1_id_start', h1_id_start)
-        f, h1_births = conv_filtration(f, x[0], self.conv1.weight.data[:,0,:,:], 0, h1_id_start, percentile=percentile)
+        f, h1_births = linear_filtration(f, x[0], self.fc1, 0, h1_id_start, percentile=percentile)
 
         h2_id_start = h1_id_start + hiddens[0].cpu().detach().numpy().shape[0]
         print('h2_id_start', h2_id_start)
@@ -172,100 +163,6 @@ class CFF(nn.Module):
         h3_id_start = h2_id_start + hiddens[1].cpu().detach().numpy().shape[0]
         print('h3_id_start', h3_id_start)
         f = linear_filtration(f, hiddens[1], self.fc2, h2_births, h2_id_start, h3_id_start, percentile=percentile, last=True)
-
-        # mat = conv_layer_as_matrix(self.conv1.weight.data[:,0,:,:], x[0], self.conv1.stride[0])
-        # x = x.cpu().detach().numpy().reshape(-1)
-        # outer = np.absolute(mat*x)
-        #
-        # if percentile is None:
-        #     percentile_1 = 0
-        # else:
-        #     percentile_1 = np.percentile(outer, percentile)
-        # gtzx = np.argwhere(x > 0)
-        #
-        # h1_id_start = x.shape[0]
-        # print('h1_id_start', h1_id_start)
-        # h1_births = np.zeros(mat.shape[0])
-        # # loop over each entry in the reshaped (column) x vector
-        # for xi in gtzx:
-        #     # compute the product of each filter value with current x in iteration.
-        #     all_xis = np.absolute(mat[:,xi]*x[xi])
-        #     max_xi = all_xis.max()
-        #     # set our x filtration as the highest product
-        #     f.append(dion.Simplex([xi], max_xi))
-        #     gtpall_xis = np.argwhere(all_xis > percentile_1)[:,0]
-        #     # iterate over all products
-        #     for mj in gtpall_xis:
-        #         # if there is another filter-xi combination that has a higher
-        #         # product, save this as the birth time of that vertex.
-        #         if h1_births[mj] < all_xis[mj]:
-        #             h1_births[mj] = all_xis[mj]
-        #         f.append(dion.Simplex([xi, mj+h1_id_start], all_xis[mj]))
-        #
-        # h1 = hiddens[0].cpu().detach().numpy()
-        # h2_id_start = h1_id_start + h1.shape[0]
-        # print('h2_id_start', h2_id_start)
-        # mat = self.fc1.weight.data.cpu().detach().numpy()
-        # h2_births = np.zeros(mat.shape[0])
-        #
-        # outer = np.absolute(mat*h1)
-        # if percentile is None:
-        #     percentile_2 = 0
-        # else:
-        #     percentile_2 = np.percentile(outer, percentile)
-        # gtzh1 = np.argwhere(h1 > 0)
-        #
-        # for xi in gtzh1:
-        #     all_xis = np.absolute(mat[:,xi]*h1[xi])
-        #     max_xi = all_xis.max()
-        #     if h1_births[xi] < max_xi:
-        #         h1_births[xi] = max_xi
-        #     gtpall_xis = np.argwhere(all_xis > percentile_2)[:,0]
-        #
-        #     for mj in gtpall_xis:
-        #         if h2_births[mj] < all_xis[mj]:
-        #             h2_births[mj] = all_xis[mj]
-        #         f.append(dion.Simplex([xi+h1_id_start, mj+h2_id_start], all_xis[mj]))
-        #
-        #
-        # # now add maximum birth time for each h1 hidden vertex to the filtration.
-        # for i in np.argwhere(h1_births > 0):
-        #     f.append(dion.Simplex([i+h1_id_start], h1_births[i]))
-        #
-        #
-        # h2 = hiddens[1].cpu().detach().numpy()
-        # h3_id_start = h2_id_start + h2.shape[0]
-        # print('h3_id_start', h3_id_start)
-        # mat = self.fc2.weight.data.cpu().detach().numpy()
-        # h3_births = np.zeros(mat.shape[0])
-        #
-        # outer = np.absolute(mat*h2)
-        # if percentile is None:
-        #     percentile_3 = 0
-        # else:
-        #     percentile_3 = np.percentile(outer, percentile)
-        # gtzh2 = np.argwhere(h2 > 0)
-        #
-        # for xi in gtzh2:
-        #     all_xis = np.absolute(mat[:,xi]*h2[xi])
-        #     max_xi = all_xis.max()
-        #     if h2_births[xi] < max_xi:
-        #         h2_births[xi] = max_xi
-        #     gtpall_xis = np.argwhere(all_xis > percentile_3)[:,0]
-        #
-        #     for mj in gtpall_xis:
-        #         if h3_births[mj] < all_xis[mj]:
-        #             h3_births[mj] = all_xis[mj]
-        #         f.append(dion.Simplex([xi+h2_id_start, mj+h3_id_start], all_xis[mj]))
-        #
-        #
-        # # now add maximum birth time for each h2 hidden vertex to the filtration.
-        # for i in np.argwhere(h2_births > 0):
-        #     f.append(dion.Simplex([i+h2_id_start], h2_births[i]))
-        #
-        # # now add maximum birth time for each h3 hidden vertex to the filtration.
-        # for i in np.argwhere(h3_births > 0):
-        #     f.append(dion.Simplex([i+h3_id_start], h3_births[i]))
 
         print('filtration size', len(f))
         print('Sorting filtration...')
@@ -454,7 +351,7 @@ def main():
         batch_size=args.test_batch_size, shuffle=True, **kwargs)
 
 
-    model = CFF().to(device)
+    model = FFF().to(device)
     # optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum)
     optimizer = optim.SGD(model.parameters(), lr=args.lr)
     res_df = []

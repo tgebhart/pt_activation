@@ -38,7 +38,8 @@ class CFF(nn.Module):
     #
 
     def save_string(self):
-        return "cff_mnist_relu.pt"
+        return "cff_fashion_relu.pt".format(
+                self.filters, self.kernel_size, self.fc1_size, self.activation)
 
     def layerwise_ids(self, input_size=28*28):
         l1_size = (28-self.kernel_size+1)**2*self.filters
@@ -358,6 +359,7 @@ def create_diagrams(args, model):
     test_loader = torch.utils.data.DataLoader(
         datasets.MNIST('../data', train=False, download=True, transform=transforms.Compose([
                            transforms.ToTensor(),
+                           transforms.Normalize((0.1307,), (0.3081,))
                        ])), batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
 
@@ -440,14 +442,13 @@ def main():
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
     train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=True, download=True,
+        datasets.FashionMNIST('../data/fashion', train=True, download=True,
                        transform=transforms.Compose([
                            transforms.ToTensor(),
-                        #    transforms.Normalize((0.1307,), (0.3081,))
                        ])),
         batch_size=args.batch_size, shuffle=True, **kwargs)
     test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False, transform=transforms.Compose([
+        datasets.FashionMNIST('../data/fashion', train=False, transform=transforms.Compose([
                            transforms.ToTensor(),
                         #    transforms.Normalize((0.1307,), (0.3081,))
                        ])),
