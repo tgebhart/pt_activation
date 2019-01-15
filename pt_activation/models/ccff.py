@@ -31,12 +31,12 @@ class CCFF(nn.Module):
         y = self.l2(h3)
         hiddens = [h1, resized, h3, y]
         if hiddens:
-            return y, hiddens
-        return y
+            return F.log_softmax(y, dim=1), hiddens
+        return F.log_softmax(y, dim=1)
 
 
     def save_string(self):
-        return "ccff_fashion.pt"
+        return "ccff.pt"
 
     # def layerwise_ids(self, input_size=28*28):
     #     l1_size = (28-self.kernel_size+1)**2*self.filters
@@ -352,6 +352,8 @@ def main():
                         help='Whether to compute homology on dynamic graph after training')
     parser.add_argument('-ht', '--homology-train', action='store_true', default=False,
                         help='Whether to compute homology on static graph during training')
+    parser.add_argument('-da', '--dataset', type=str, required=True,
+                        help='which dataset to train on (mnist or fashionmnist)')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -361,17 +363,28 @@ def main():
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
 
-    transform = transforms.Compose([transforms.ToTensor()])
+    if args.dataset == 'mnist':
+        train_loader = torch.utils.data.DataLoader(
+            datasets.MNIST('../data', train=True, download=True, transform=transforms.Compose([
+                               transforms.ToTensor(),
+                           ])), batch_size=args.batch_size, shuffle=True, **kwargs)
 
-    trainset = datasets.FashionMNIST(root='../data/fashion', train=True,
-                                            download=True, transform=transform)
-    train_loader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size,
-                                              shuffle=True, num_workers=2)
+        test_loader = torch.utils.data.DataLoader(
+            datasets.MNIST('../data', train=False, download=True, transform=transforms.Compose([
+                               transforms.ToTensor(),
+                           ])), batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
-    testset = datasets.FashionMNIST(root='../data/fashion', train=False,
-                                           download=True, transform=transform)
-    test_loader = torch.utils.data.DataLoader(testset, batch_size=args.test_batch_size,
-                                             shuffle=False, num_workers=2)
+
+    if args.dataset == 'fashion':
+        train_loader = torch.utils.data.DataLoader(
+            datasets.MNIST('../data/fashion', train=True, download=True, transform=transforms.Compose([
+                               transforms.ToTensor(),
+                           ])), batch_size=args.batch_size, shuffle=True, **kwargs)
+
+        test_loader = torch.utils.data.DataLoader(
+            datasets.FashionMNIST('../data/fashion', train=False, download=True, transform=transforms.Compose([
+                               transforms.ToTensor(),
+                           ])), batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
 
     model = CCFF().to(device)

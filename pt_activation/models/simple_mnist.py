@@ -33,12 +33,9 @@ class CFF(nn.Module):
             return F.log_softmax(y, dim=1), [h1, h2, y]
         return F.log_softmax(y, dim=1)
 
-    # def predict_subgraph(self, x, subgraph):
-    #     model.eval()
-    #
 
     def save_string(self):
-        return "cff_mnist_relu.pt"
+        return "cff_relu.pt"
 
     def layerwise_ids(self, input_size=28*28):
         l1_size = (28-self.kernel_size+1)**2*self.filters
@@ -382,7 +379,6 @@ def create_diagrams(args, model):
                 this_hiddens = [hiddens[0][s], hiddens[1][s], hiddens[2][s]]
                 print('Filtration: {}'.format(s+t))
                 f = model.compute_dynamic_filtration(data[s,0], this_hiddens)
-                #
                 m = dion.homology_persistence(f)
                 dgms = dion.init_diagrams(m, f)
                 row = {'diagrams':dgms, 'loss':output.cpu().numpy()[s][0], 'class':target.cpu().numpy()[s], 'prediction':pred.cpu().numpy()[s][0]}
@@ -431,6 +427,8 @@ def main():
                         help='Whether to compute homology on dynamic graph after training')
     parser.add_argument('-ht', '--homology-train', action='store_true', default=False,
                         help='Whether to compute homology on static graph during training')
+    parser.add_argument('-da', '--dataset', type=str, required=True,
+                        help='which dataset to train on (mnist or fashionmnist)')
     args = parser.parse_args()
     use_cuda = not args.no_cuda and torch.cuda.is_available()
 
@@ -439,19 +437,29 @@ def main():
     device = torch.device("cuda" if use_cuda else "cpu")
 
     kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
-    train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=True, download=True,
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),
-                        #    transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=args.batch_size, shuffle=True, **kwargs)
-    test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False, transform=transforms.Compose([
-                           transforms.ToTensor(),
-                        #    transforms.Normalize((0.1307,), (0.3081,))
-                       ])),
-        batch_size=args.test_batch_size, shuffle=True, **kwargs)
+
+    if args.dataset == 'mnist':
+        train_loader = torch.utils.data.DataLoader(
+            datasets.MNIST('../data', train=True, download=True, transform=transforms.Compose([
+                               transforms.ToTensor(),
+                           ])), batch_size=args.batch_size, shuffle=True, **kwargs)
+
+        test_loader = torch.utils.data.DataLoader(
+            datasets.MNIST('../data', train=False, download=True, transform=transforms.Compose([
+                               transforms.ToTensor(),
+                           ])), batch_size=args.test_batch_size, shuffle=False, **kwargs)
+
+
+    if args.dataset == 'fashion':
+        train_loader = torch.utils.data.DataLoader(
+            datasets.MNIST('../data/fashion', train=True, download=True, transform=transforms.Compose([
+                               transforms.ToTensor(),
+                           ])), batch_size=args.batch_size, shuffle=True, **kwargs)
+
+        test_loader = torch.utils.data.DataLoader(
+            datasets.FashionMNIST('../data/fashion', train=False, download=True, transform=transforms.Compose([
+                               transforms.ToTensor(),
+                           ])), batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
 
     model = CFF().to(device)
