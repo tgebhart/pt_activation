@@ -25,6 +25,7 @@ import networkx as nx
 import seaborn as sns
 
 from pt_activation.models.fff import FFF as FFFRelu
+from pt_activation.models.linear import FFF
 from pt_activation.models.simple_mnist import CFF as CFFRelu
 from pt_activation.models.simple_mnist_sigmoid import CFF as CFFSigmoid
 from pt_activation.models.ccff import CCFF as CCFFRelu
@@ -77,7 +78,7 @@ def create_lifetimes(dgms):
     return [[pt.birth - pt.death for pt in dgm if pt.death < np.inf] for dgm in dgms]
 
 
-def create_subgraphs(model, batch_size, up_to, test_loader):
+def create_subgraphs(model, batch_size, up_to, test_loader, filtration=True):
     device = torch.device("cpu")
     model.eval()
     test_loss = 0
@@ -97,12 +98,14 @@ def create_subgraphs(model, batch_size, up_to, test_loader):
             for s in range(data.shape[0]):
                 this_hiddens = [hiddens[i][s] for i in range(len(hiddens))]
                 print('Filtration: {}'.format(s+t))
-                f = model.compute_dynamic_filtration(data[s], this_hiddens)
-                sg, dg = create_sample_graph(f)
+                if filtration:
+                    f = model.compute_dynamic_filtration(data[s], this_hiddens)
+                    sg, dg = create_sample_graph(f)
+                    subgraphs.append(sg)
+                    diagrams.append(dg)
                 row = {'loss':test_loss, 'class':target.cpu().numpy()[s], 'prediction':pred.cpu().numpy()[s][0]}
                 res_df.append(row)
-                subgraphs.append(sg)
-                diagrams.append(dg)
+
 
             t += batch_size
             if t >= up_to:
@@ -111,7 +114,7 @@ def create_subgraphs(model, batch_size, up_to, test_loader):
     return pd.DataFrame(res_df), subgraphs, diagrams
 
 
-def create_adversary_subgraphs(model, batch_size, up_to, adversaries):
+def create_adversary_subgraphs(model, batch_size, up_to, adversaries, filtration=True):
     device = torch.device("cpu")
     adv_images = torch.tensor(np.array([a['adversary'] for a in adversaries]))
     adv_labels = torch.tensor(np.array([a['true class'] for a in adversaries]))
@@ -140,12 +143,14 @@ def create_adversary_subgraphs(model, batch_size, up_to, adversaries):
             for s in range(data.shape[0]):
                 this_hiddens = [hiddens[i][s] for i in range(len(hiddens))]
                 print('Filtration: {}'.format(s+t))
-                f = model.compute_dynamic_filtration(data[s], this_hiddens)
-                sg, dg = create_sample_graph(f)
-                row = {'loss':test_loss, 'class':target.cpu().numpy()[s], 'prediction':pred.cpu().numpy()[s][0]}
+                if filtration:
+                    f = model.compute_dynamic_filtration(data[s], this_hiddens)
+                    sg, dg = create_sample_graph(f)
+                    subgraphs.append(sg)
+                    diagrams.append(dg)
+                row = {'loss':test_loss, 'class':target.cpu().numpy()[s], 'prediction':pred.cpu().numpy()[s][0], 'sample':adv_samples[t]}
                 res_df.append(row)
-                subgraphs.append(sg)
-                diagrams.append(dg)
+
 
             t += (batch_size)
             if t >= up_to:
@@ -158,7 +163,7 @@ def create_adversary_subgraphs(model, batch_size, up_to, adversaries):
 
 
 
-def run(adv_directory_loc, model, figure_loc, test_loader, labels, some_num=10, of_int=1, num_filtration=3000, graphs_precomputed=True, take=-1):
+def run(adv_directory_loc, model, figure_loc, test_loader, labels, some_num=10, of_int=1, num_filtration=2000, graphs_precomputed=True, take=-1):
     colors = ['black', 'blue', 'red', 'green', 'yellow', 'orange', 'purple', 'pink', 'silver', 'cyan']
     adversaries = read_adversaries(adv_directory_loc)
     adversaries = sorted(adversaries,  key=lambda k: k['sample'])
@@ -166,6 +171,9 @@ def run(adv_directory_loc, model, figure_loc, test_loader, labels, some_num=10, 
     if graphs_precomputed:
         sample_graphs = pickle.load( open(os.path.join(adv_directory_loc, 'sample_graphs.pkl'), "rb") )
         adv_sample_graphs = pickle.load( open(os.path.join(adv_directory_loc, 'adv_sample_graphs.pkl'), "rb") )
+        res_df, _, dgms = create_subgraphs(model, 1, num_filtration, test_loader, filtration=False)
+        adv_df, _, adv_dgms = create_adversary_subgraphs(model, 1, num_filtration, adversaries, filtration=False)
+
     else:
         res_df, sample_graphs, dgms = create_subgraphs(model, 1, num_filtration, test_loader)
         adv_df, adv_sample_graphs, adv_dgms = create_adversary_subgraphs(model, 1, num_filtration, adversaries)
@@ -288,7 +296,7 @@ def main():
                         help='where to find adversaries in .npy format')
     parser.add_argument('-o', '--figure-loc', type=str, required=True,
                         help='where to save output results / graphs')
-    parser.add_argument('-nf', '--number-filtration', type=int, required=False, default=3000,
+    parser.add_argument('-nf', '--number-filtration', type=int, required=False, default=2000,
                         help='number of filtrations to consider for each unaltered and adversarial examples')
     parser.add_argument('-rg', '--recompute-graphs', action='store_true', default=False,
                     help='Whether to recreate subgraphs or load from adversary directory')
@@ -308,6 +316,8 @@ def main():
         model = CCFFRelu()
     if mt == 'FFFRelu':
         model = FFFRelu()
+    if mt == 'FFF':
+        model = FFF()
     model.load_state_dict(torch.load(args.model_location))
 
     kwargs = {'num_workers': 1, 'pin_memory': True}

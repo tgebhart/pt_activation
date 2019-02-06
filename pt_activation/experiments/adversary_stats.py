@@ -21,6 +21,7 @@ import networkx as nx
 import seaborn as sns
 
 from pt_activation.models.fff import FFF as FFFRelu
+from pt_activation.models.linear import FFF
 from pt_activation.models.simple_mnist import CFF as CFFRelu
 from pt_activation.models.simple_mnist_sigmoid import CFF as CFFSigmoid
 from pt_activation.models.ccff import CCFF as CCFFRelu
@@ -72,8 +73,7 @@ def create_sample_graph(f):
 def create_lifetimes(dgms):
     return [[pt.birth - pt.death for pt in dgm if pt.death < np.inf] for dgm in dgms]
 
-
-def create_subgraphs(model, batch_size, up_to, test_loader):
+def create_subgraphs(model, batch_size, up_to, test_loader, filtration=True):
     device = torch.device("cpu")
     model.eval()
     test_loss = 0
@@ -93,12 +93,14 @@ def create_subgraphs(model, batch_size, up_to, test_loader):
             for s in range(data.shape[0]):
                 this_hiddens = [hiddens[i][s] for i in range(len(hiddens))]
                 print('Filtration: {}'.format(s+t))
-                f = model.compute_dynamic_filtration(data[s], this_hiddens)
-                sg, dg = create_sample_graph(f)
+                if filtration:
+                    f = model.compute_dynamic_filtration(data[s], this_hiddens)
+                    sg, dg = create_sample_graph(f)
+                    subgraphs.append(sg)
+                    diagrams.append(dg)
                 row = {'loss':test_loss, 'class':target.cpu().numpy()[s], 'prediction':pred.cpu().numpy()[s][0]}
                 res_df.append(row)
-                subgraphs.append(sg)
-                diagrams.append(dg)
+
 
             t += batch_size
             if t >= up_to:
@@ -107,7 +109,7 @@ def create_subgraphs(model, batch_size, up_to, test_loader):
     return pd.DataFrame(res_df), subgraphs, diagrams
 
 
-def create_adversary_subgraphs(model, batch_size, up_to, adversaries):
+def create_adversary_subgraphs(model, batch_size, up_to, adversaries, filtration=True):
     device = torch.device("cpu")
     adv_images = torch.tensor(np.array([a['adversary'] for a in adversaries]))
     adv_labels = torch.tensor(np.array([a['true class'] for a in adversaries]))
@@ -136,12 +138,14 @@ def create_adversary_subgraphs(model, batch_size, up_to, adversaries):
             for s in range(data.shape[0]):
                 this_hiddens = [hiddens[i][s] for i in range(len(hiddens))]
                 print('Filtration: {}'.format(s+t))
-                f = model.compute_dynamic_filtration(data[s], this_hiddens)
-                sg, dg = create_sample_graph(f)
-                row = {'loss':test_loss, 'class':target.cpu().numpy()[s], 'prediction':pred.cpu().numpy()[s][0], 'sample':adv_samples[t+s]}
+                if filtration:
+                    f = model.compute_dynamic_filtration(data[s], this_hiddens)
+                    sg, dg = create_sample_graph(f)
+                    subgraphs.append(sg)
+                    diagrams.append(dg)
+                row = {'loss':test_loss, 'class':target.cpu().numpy()[s], 'prediction':pred.cpu().numpy()[s][0], 'sample':adv_samples[t]}
                 res_df.append(row)
-                subgraphs.append(sg)
-                diagrams.append(dg)
+
 
             t += (batch_size)
             if t >= up_to:
@@ -151,13 +155,22 @@ def create_adversary_subgraphs(model, batch_size, up_to, adversaries):
 
 
 
-def run(adv_directory_loc, model, figure_loc, test_loader, some_num=10, of_int=1, num_filtration=2000):
+
+def run(adv_directory_loc, unaltered_save_loc, model, figure_loc, test_loader, some_num=10, of_int=1, num_filtration=2000):
 
     adversaries = read_adversaries(adv_directory_loc)
     adversaries = sorted(adversaries,  key=lambda k: k['sample'])
 
-    res_df, sample_graphs, dgms = create_subgraphs(model, 1, num_filtration, test_loader)
-    adv_df, adv_sample_graphs, adv_dgms = create_adversary_subgraphs(model, 1, num_filtration, adversaries)
+    if os.path.isfile(os.path.join(unaltered_save_loc, 'sample_graphs.pkl')):
+        sample_graphs = pickle.load( open(os.path.join(unaltered_save_loc, 'sample_graphs.pkl'), "rb") )
+        res_df, _, dgms = create_subgraphs(model, 1, num_filtration, test_loader, filtration=False)
+        adv_df, adv_sample_graphs, adv_dgms = create_adversary_subgraphs(model, 1, num_filtration, adversaries, filtration=True)
+
+    else:
+        res_df, sample_graphs, dgms = create_subgraphs(model, 1, num_filtration, test_loader)
+        adv_df, adv_sample_graphs, adv_dgms = create_adversary_subgraphs(model, 1, num_filtration, adversaries)
+        with open(os.path.join(unaltered_save_loc, 'sample_graphs.pkl'), 'wb') as f:
+            pickle.dump(sample_graphs, f)
 
     with open(os.path.join(adv_directory_loc, 'sample_graphs.pkl'), 'wb') as f:
         pickle.dump(sample_graphs, f)
@@ -181,39 +194,39 @@ def run(adv_directory_loc, model, figure_loc, test_loader, some_num=10, of_int=1
         adv_sgl[i] = len(adv_sample_graphs[i])
 
 
-    d = [[pt.birth, pt.death] for pt in adv_dgms[of_int] if pt.death < np.inf]
-    d = np.array(d)
-    ax = plt.subplot()
-    ax.scatter(d[:,0], d[:,1], s=25, c=COLORS[0])
-    lims = [
-        np.min(.9*d[:,0]),  # min of both axes
-        np.max(1.1*d[:,1]),  # max of both axes
-    ]
-    ax.plot(lims, lims, 'k-', alpha=0.75, zorder=0)
-    ax.set_aspect('equal')
-    ax.set_xlim(lims)
-    ax.set_ylim(lims)
-    plt.xlabel('Birth Time')
-    plt.ylabel('Death Time')
-    plt.savefig(os.path.join(figure_loc, 'diagram.png'), dpi=1200)
-    plt.close()
-
-    d = [[pt.birth, pt.death] for pt in dgms[of_int] if pt.death < np.inf]
-    d = np.array(d)
-    ax = plt.subplot()
-    ax.scatter(d[:,0], d[:,1], s=25, c=COLORS[1])
-    lims = [
-        np.min(d[:,0]),  # min of both axes
-        np.max(d[:,1]),  # max of both axes
-    ]
-    ax.plot(lims, lims, 'k-', alpha=0.75, zorder=0)
-    ax.set_aspect('equal')
-    ax.set_xlim(lims)
-    ax.set_ylim(lims)
-    plt.xlabel('Birth Time')
-    plt.ylabel('Death Time')
-    plt.savefig(os.path.join(figure_loc, 'adversary_diagram.png'), dpi=1200)
-    plt.close()
+    # d = [[pt.birth, pt.death] for pt in adv_dgms[of_int] if pt.death < np.inf]
+    # d = np.array(d)
+    # ax = plt.subplot()
+    # ax.scatter(d[:,0], d[:,1], s=25, c=COLORS[0])
+    # lims = [
+    #     np.min(.9*d[:,0]),  # min of both axes
+    #     np.max(1.1*d[:,1]),  # max of both axes
+    # ]
+    # ax.plot(lims, lims, 'k-', alpha=0.75, zorder=0)
+    # ax.set_aspect('equal')
+    # ax.set_xlim(lims)
+    # ax.set_ylim(lims)
+    # plt.xlabel('Birth Time')
+    # plt.ylabel('Death Time')
+    # plt.savefig(os.path.join(figure_loc, 'diagram.png'), dpi=1200)
+    # plt.close()
+    #
+    # d = [[pt.birth, pt.death] for pt in dgms[of_int] if pt.death < np.inf]
+    # d = np.array(d)
+    # ax = plt.subplot()
+    # ax.scatter(d[:,0], d[:,1], s=25, c=COLORS[1])
+    # lims = [
+    #     np.min(d[:,0]),  # min of both axes
+    #     np.max(d[:,1]),  # max of both axes
+    # ]
+    # ax.plot(lims, lims, 'k-', alpha=0.75, zorder=0)
+    # ax.set_aspect('equal')
+    # ax.set_xlim(lims)
+    # ax.set_ylim(lims)
+    # plt.xlabel('Birth Time')
+    # plt.ylabel('Death Time')
+    # plt.savefig(os.path.join(figure_loc, 'adversary_diagram.png'), dpi=1200)
+    # plt.close()
 
     rng = [np.amin([np.amin(sgl), np.amin(adv_sgl)]), np.amax([np.amax(sgl), np.amax(adv_sgl)])]
     plt.hist([sgl, adv_sgl], bins='auto', color=COLORS, label=PLT_LABELS, range=rng)
@@ -222,23 +235,29 @@ def run(adv_directory_loc, model, figure_loc, test_loader, some_num=10, of_int=1
     plt.savefig(os.path.join(figure_loc, 'num_generators.png'), dpi=1200)
     plt.close()
 
-    lifetimes = create_lifetimes(dgms)
-    adv_lifetimes = create_lifetimes(adv_dgms)
+    # lifetimes = create_lifetimes(dgms)
+    # adv_lifetimes = create_lifetimes(adv_dgms)
+    #
+    # mls = [np.mean(l) for l in lifetimes]
+    # adv_mls = [np.mean(l) for l in adv_lifetimes]
+    # rng = [np.amin([np.amin(mls), np.amin(adv_mls)]), np.amax([np.amax(mls), np.amax(adv_mls)])]
+    # plt.hist([mls, adv_mls], bins='auto', range=rng, color=COLORS, label=PLT_LABELS)
+    # plt.ylabel('Number of Inputs')
+    # plt.xlabel('Mean Lifetime of Generators')
+    # plt.savefig(os.path.join(figure_loc, 'mean_lifetime.png'), dpi=1200)
+    # plt.close()
 
-    mls = [np.mean(l) for l in lifetimes]
-    adv_mls = [np.mean(l) for l in adv_lifetimes]
-    rng = [np.amin([np.amin(mls), np.amin(adv_mls)]), np.amax([np.amax(mls), np.amax(adv_mls)])]
-    plt.hist([mls, adv_mls], bins='auto', range=rng, color=COLORS, label=PLT_LABELS)
-    plt.ylabel('Number of Inputs')
-    plt.xlabel('Mean Lifetime of Generators')
-    plt.savefig(os.path.join(figure_loc, 'mean_lifetime.png'), dpi=1200)
-    plt.close()
+    if os.path.isfile(os.path.join(unaltered_save_loc,'all_gois.pkl')):
+        all_gois = pickle.load( open(os.path.join(unaltered_save_loc, 'all_gois.pkl'), "rb") )
+    else:
+        all_gois = []
+        for i in range(len(sample_graphs)):
+            print('all_gois', i)
+            a = [sample_graphs[i][k] for k in sample_graphs[i].keys()]
+            all_gois.append(nx.compose_all(a))
 
-    all_gois = []
-    for i in range(len(sample_graphs)):
-        print('all_gois', i)
-        a = [sample_graphs[i][k] for k in sample_graphs[i].keys()]
-        all_gois.append(nx.compose_all(a))
+        with open(os.path.join(unaltered_save_loc, 'all_gois.pkl'), 'wb') as f:
+            pickle.dump(all_gois, f)
 
     adv_all_gois = []
     for i in range(len(adv_sample_graphs)):
@@ -246,10 +265,16 @@ def run(adv_directory_loc, model, figure_loc, test_loader, some_num=10, of_int=1
         a = [adv_sample_graphs[i][k] for k in adv_sample_graphs[i].keys()]
         adv_all_gois.append(nx.compose_all(a))
 
-    eigs = []
-    for i in range(len(all_gois)):
-        print('normal eig', i)
-        eigs.append(nx.linalg.laplacian_spectrum(all_gois[i]))
+    if os.path.isfile(os.path.join(unaltered_save_loc,'eigs.pkl')):
+        eigs = pickle.load( open(os.path.join(unaltered_save_loc, 'eigs.pkl'), "rb") )
+    else:
+        eigs = []
+        for i in range(len(all_gois)):
+            print('normal eig', i)
+            eigs.append(nx.linalg.laplacian_spectrum(all_gois[i]))
+
+        with open(os.path.join(unaltered_save_loc, 'eigs.pkl'), 'wb') as f:
+            pickle.dump(eigs, f)
 
     adv_eigs = []
     for i in range(len(adv_all_gois)):
@@ -380,8 +405,8 @@ def run(adv_directory_loc, model, figure_loc, test_loader, some_num=10, of_int=1
     plt.savefig(os.path.join(figure_loc, 'density.png'), dpi=1200)
     plt.close()
 
-    print_out = {'average lifetime':np.mean(mls),
-                'average adversary lifetime':np.mean(adv_mls),
+    print_out = {# 'average lifetime':np.mean(mls),
+                # 'average adversary lifetime':np.mean(adv_mls),
                 'average eigenvalue': np.mean(mean_eigs[:,0]),
                 'average adversary eigenvalue': np.mean(adv_mean_eigs[:,0]),
                 'average spectrum size': np.mean(mean_eigs[:,1]),
@@ -391,8 +416,8 @@ def run(adv_directory_loc, model, figure_loc, test_loader, some_num=10, of_int=1
                 'average density': np.mean(density),
                 'average adversary density': np.mean(adv_density),
 
-                'std lifetime':np.std(mls),
-                'std adversary lifetime':np.std(adv_mls),
+                # 'std lifetime':np.std(mls),
+                # 'std adversary lifetime':np.std(adv_mls),
                 'std eigenvalue': np.std(mean_eigs[:,0]),
                 'std adversary eigenvalue': np.std(adv_mean_eigs[:,0]),
                 'std spectrum size': np.std(mean_eigs[:,1]),
@@ -411,6 +436,8 @@ def main():
     parser = argparse.ArgumentParser(description='PyTorch MNIST')
     parser.add_argument('-m', '--model-location', type=str, required=True,
                         help='location of stored trained model')
+    parser.add_argument('-usl', '--unaltered-save-loc', type=str, required=True,
+                        help='location to store and load pickled information for unaltered')
     parser.add_argument('-d', '--dataset', type=str, required=True,
                         help='which dataset to use (mnist or fashion)')
     parser.add_argument('-mt', '--model-type', type=str, required=True,
@@ -436,6 +463,8 @@ def main():
         model = CCFFRelu()
     if mt == 'FFFRelu':
         model = FFFRelu()
+    if mt == 'FFF':
+        model = FFF()
     model.load_state_dict(torch.load(args.model_location))
 
     kwargs = {'num_workers': 1, 'pin_memory': True}
@@ -451,7 +480,7 @@ def main():
                            ])), batch_size=1, shuffle=False, **kwargs)
 
 
-    run(args.adversary_directory, model, args.figure_loc, test_loader, num_filtration=args.number_filtration)
+    run(args.adversary_directory, args.unaltered_save_loc, model, args.figure_loc, test_loader, num_filtration=args.number_filtration)
 
 
 if __name__ == '__main__':

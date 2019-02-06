@@ -11,6 +11,7 @@ from pt_activation.models.simple_mnist_sigmoid import CFF as CFFSigmoid
 from pt_activation.models.simple_mnist import CFF as CFFRelu
 from pt_activation.models.fff import FFF as FFFRelu
 from pt_activation.models.ccff import CCFF as CCFFRelu
+from pt_activation.models.linear import FFF as FFF
 
 
 def get_attack(attack, fmodel):
@@ -18,6 +19,8 @@ def get_attack(attack, fmodel):
         return foolbox.attacks.LBFGSAttack(fmodel)
     if attack == 'carliniwagnerl2':
         return foolbox.attacks.CarliniWagnerL2Attack(fmodel)
+    if attack == 'carliniwagnerlinf':
+        return foolbox.attacks.CarliniWagnerL2Attack(fmodel, distance=foolbox.distances.Linfinity)
     if attack == 'projected_gradient_descent':
         return foolbox.attacks.ProjectedGradientDescentAttack(fmodel)
     if attack == 'gaussian_noise':
@@ -67,6 +70,8 @@ def run(attack_name, adversary_location, model, dataset, classes=list(range(10))
 
 def main():
     # Training settings
+    # attacks = ['lbfgsm', 'carliniwagnerl2', 'projected_gradient_descent', 'gaussian_noise', 'carliniwagnerlinf']
+    attacks = ['lbfgsm', 'carliniwagnerl2', 'projected_gradient_descent', 'gaussian_noise']
     parser = argparse.ArgumentParser(description='PyTorch MNIST')
     parser.add_argument('-m', '--model-directory', type=str, required=True,
                         help='location to store trained model')
@@ -82,10 +87,12 @@ def main():
                         help='number of adversaries to create')
     parser.add_argument('-c', '--classes', required=False, default=list(range(10)), nargs='+',
                         help='which classes to create adversaries for')
-
+    parser.add_argument('-a','--attacks', nargs='+', help='List of attacks', required=False,
+                        default=attacks)
 
     args = parser.parse_args()
     classes = list(map(lambda x : int(x), args.classes))
+    attacks = args.attacks
 
     model_location = os.path.join(args.model_directory, args.model_name)
     mt = args.model_type
@@ -97,9 +104,10 @@ def main():
         model = CCFFRelu()
     if mt == 'FFFRelu':
         model = FFFRelu()
+    if mt == 'FFF':
+        model = FFF()
     model.load_state_dict(torch.load(model_location))
 
-    attacks = ['lbfgsm', 'carliniwagnerl2', 'projected_gradient_descent', 'gaussian_noise']
 
     for attack in attacks:
 
