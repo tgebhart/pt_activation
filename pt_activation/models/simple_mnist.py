@@ -452,7 +452,7 @@ def main():
 
     if args.dataset == 'fashion':
         train_loader = torch.utils.data.DataLoader(
-            datasets.MNIST('../data/fashion', train=True, download=True, transform=transforms.Compose([
+            datasets.FashionMNIST('../data/fashion', train=True, download=True, transform=transforms.Compose([
                                transforms.ToTensor(),
                            ])), batch_size=args.batch_size, shuffle=True, **kwargs)
 
