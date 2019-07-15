@@ -11,6 +11,7 @@ from pt_activation.models.cff_sigmoid import CFF as CFFSigmoid
 from pt_activation.models.cff import CFF as CFFRelu
 from pt_activation.models.fff import FFF as FFFRelu
 from pt_activation.models.ccff import CCFF as CCFFRelu
+from pt_activation.models.ccff_sigmoid import CCFF as CCFFSigmoid
 from pt_activation.models.linear import FFF as FFF
 
 from pt_activation.models.alexnet import AlexNet
@@ -36,9 +37,9 @@ def run(attack_name, adversary_location, model, dataset, classes=list(range(10))
                        ]))
     if dataset == 'fashion':
         mnist_dataset = datasets.FashionMNIST('../data/fashion', train=False, download=True, transform=transforms.Compose([transforms.ToTensor(),
-                               transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))]))
+                               transforms.Normalize((0.5,), (0.5,))]))
     if dataset == 'cifar':
-        mnist_dataset = datasets.CIFAR10(root='../data/cifar', train=True,
+        mnist_dataset = datasets.CIFAR10(root='../data/cifar', train=False,
                                                 download=True, transform = transforms.Compose(
                                                 [transforms.ToTensor(),
                                                  transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))]))
@@ -71,7 +72,10 @@ def run(attack_name, adversary_location, model, dataset, classes=list(range(10))
         # apply attack on source image
 
         attack = get_attack(attack_name, fmodel)
-        adversarial = attack(image, label, max_iterations=max_iterations)
+        if attack_name == 'carliniwagnerl2':
+            adversarial = attack(image, label, max_iterations=max_iterations)
+        else:
+            adversarial = attack(image, label)
         if adversarial is not None:
             c = np.argmax(fmodel.predictions(adversarial))
 
@@ -118,6 +122,8 @@ def main():
         model = CFFSigmoid()
     if mt == 'CCFFRelu':
         model = CCFFRelu()
+    if mt == 'CCFFSigmoid':
+        model = CCFFSigmoid()
     if mt == 'FFFRelu':
         model = FFFRelu()
     if mt == 'FFF':

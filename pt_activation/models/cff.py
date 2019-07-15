@@ -176,7 +176,7 @@ class CFF(nn.Module):
         f.sort(reverse=True)
         return f
 
-    def compute_dynamic_filtration2(self, x, hiddens, percentile=0, return_nm=False, absolute_value=True):
+    def compute_dynamic_filtration2(self, x, hiddens, percentile=0, return_nm=False, absolute_value=True, input_layer=False):
         id = 0
         f = dion.Filtration()
         enums = []
@@ -219,15 +219,18 @@ class CFF(nn.Module):
         percentiles[l] = compute_percentiles(hiddens[l].cpu().detach().numpy(), percentile, absolute_value)
         hn = hiddens[l].cpu().detach().numpy()
         nlc = hn.reshape((hn.shape[0],-1)).shape[1]
+        nls = hn.shape[0]
         stride = 1
         for c in range(num_channels):
             p = params[l].weight.data[:,c,:,:]
             mat = conv_layer_as_matrix(p, x[c], stride)
-            m1, h0_births, h1_births = conv_filtration_fast2(x[c], mat, l, c, nlc, percentile=percentiles[l], absolute_value=absolute_value)
-            # enums = m1
-            # enums += [([spec_hash((l,c,i[0]))], h0_births[i].item()) for i in np.argwhere(h0_births > percentile)]
-            enums = []
-            enums += [([spec_hash((l+1,i[0]//nlc,i[0]%nlc))], [h1_births[i].item()]) for i in np.argwhere(h1_births > percentile)]
+            m1, h0_births, h1_births = conv_filtration_fast2(x[c], mat, l, c, nlc, nls, percentile=percentiles[l], absolute_value=absolute_value)
+            if input_layer:
+                enums = m1
+                enums += [([spec_hash((l,c,i[0]))], [h0_births[i].item()]) for i in np.argwhere(h0_births > percentile)]
+            else:
+                enums = []
+            enums += [([spec_hash((l+1,i[0]//nlc,i[0]%nls))], [h1_births[i].item()]) for i in np.argwhere(h1_births > percentile)]
             collect_result(enums)
 
         h1 = hiddens[l].cpu().detach().numpy()
@@ -235,7 +238,7 @@ class CFF(nn.Module):
         percentiles[l] = compute_percentiles(hiddens[l].cpu().detach().numpy(), percentile, absolute_value)
         p = params[l]
         m1, h0_births, h1_births = linear_filtration_fast2(h1, p, l, 0, percentile=percentiles[l], absolute_value=absolute_value)
-        enums += m1
+        enums = m1
         comp_percentile = percentiles[l-1] if percentiles[l-1] < percentiles[l] else percentiles[l]
         enums += [([spec_hash((l,c,i[0]))], [h0_births[i]]) for i in np.argwhere(h0_births > comp_percentile)]
 
@@ -252,18 +255,6 @@ class CFF(nn.Module):
         enums += [([spec_hash((l+1,0,i[0]))], [h1_births_2[i]]) for i in np.argwhere(h1_births_2 > percentiles[l])]
 
         collect_result(enums)
-
-        # h1_id_start = x.cpu().detach().numpy().reshape(-1).shape[0]
-        # print('h1_id_start', h1_id_start)
-        # f, h1_births = conv_filtration(f, x[0], self.conv1.weight.data[:,0,:,:], 0, h1_id_start, percentile=percentile)
-        #
-        # h2_id_start = h1_id_start + hiddens[0].cpu().detach().numpy().shape[0]
-        # print('h2_id_start', h2_id_start)
-        # f, h2_births = linear_filtration(f, hiddens[0], self.fc1, h1_births, h1_id_start, h2_id_start, percentile=percentile, last=False)
-        #
-        # h3_id_start = h2_id_start + hiddens[1].cpu().detach().numpy().shape[0]
-        # print('h3_id_start', h3_id_start)
-        # f = linear_filtration(f, hiddens[1], self.fc2, h2_births, h2_id_start, h3_id_start, percentile=percentile, last=True)
 
         print('filtration size', len(f))
 
@@ -556,11 +547,11 @@ def main():
     if args.dataset == 'fashion':
         train_loader = torch.utils.data.DataLoader(
             datasets.FashionMNIST('../data/fashion', train=True, download=True, transform=transforms.Compose([transforms.ToTensor(),
-                               transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])), batch_size=args.batch_size, shuffle=True, **kwargs)
+                               transforms.Normalize((0.5,), (0.5,))])), batch_size=args.batch_size, shuffle=True, **kwargs)
 
         test_loader = torch.utils.data.DataLoader(
             datasets.FashionMNIST('../data/fashion', train=False, download=True, transform=transforms.Compose([transforms.ToTensor(),
-                               transforms.Normalize((0.5,0.5,0.5), (0.5,0.5,0.5))])), batch_size=args.test_batch_size, shuffle=False, **kwargs)
+                               transforms.Normalize((0.5,), (0.5,))])), batch_size=args.test_batch_size, shuffle=False, **kwargs)
 
 
     model = CFF().to(device)

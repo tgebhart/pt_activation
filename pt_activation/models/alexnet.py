@@ -24,7 +24,7 @@ f = dion.Filtration()
 
 def first_layer(x,p,l,c,percentile,stride,nlc,nls):
     mat = conv_layer_as_matrix(p, x, stride)
-    m1, h0_births, h1_births = conv_filtration_fast2(x, mat, l, c, nlc, percentile=percentile)
+    m1, h0_births, h1_births = conv_filtration_fast2(x, mat, l, c, nlc, nls, percentile=percentile)
     # enums = m1
     # enums += [([spec_hash((l,c,i[0]))], [h0_births[i].item()]) for i in np.argwhere(h0_births > percentile)]
     enums = []
@@ -33,7 +33,7 @@ def first_layer(x,p,l,c,percentile,stride,nlc,nls):
 
 def mid_conv(h1,p,l,c,percentiles,stride,nlc,nls):
     mat = conv_layer_as_matrix(p, h1, stride)
-    m1, h0_births, h1_births = conv_filtration_fast2(h1, mat, l, c, nlc, percentile=percentiles[l])
+    m1, h0_births, h1_births = conv_filtration_fast2(h1, mat, l, c, nlc, nls, percentile=percentiles[l])
     enums = m1
     comp_percentile = percentiles[l-1] if percentiles[l-1] < percentiles[l] else percentiles[l]
     enums += [([spec_hash((l,c,i[0]))], [h0_births[i].item()]) for i in np.argwhere(h0_births > comp_percentile)]
@@ -92,6 +92,11 @@ def compute_induced_filtration_parallel(x, hiddens, params, percentile=0, stride
     global id
     global f
     global wm
+
+    id = 0
+    nm = {}
+    wm = {}
+    f = dion.Filtration()
 
     percentiles = np.zeros((len(params)))
     for l in range(len(params)):

@@ -51,7 +51,7 @@ def create_filtrations(model, batch_size, up_to):
     device = torch.device("cpu")
     kwargs = {'num_workers': 1, 'pin_memory': True}
     test_loader = torch.utils.data.DataLoader(
-        datasets.CIFAR10(root='../../data/cifar', train=True,
+        datasets.CIFAR10(root='../data/cifar', train=False,
                         download=True, transform = transforms.Compose(
                         [transforms.ToTensor(),
                         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])),
@@ -362,7 +362,7 @@ def count_nodes(graphs):
                 nm[2] = 1.0
     return nmap
 
-
+sgk = asgk = list(lifetimes[goi].keys())[0]
 print('weighted edge distance', weighted_edge_distance(sample_graphs[goi][sgk],adv_sample_graphs[goi][asgk]))
 
 adv_thru = -1
